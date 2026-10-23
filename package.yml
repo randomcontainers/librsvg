@@ -1,0 +1,203 @@
+name: librsvg
+title: librsvg
+summary: Converts SVG files to PNG, PDF, PostScript and SVG with rsvg-convert, the SVG renderer of the GNOME project.
+homepage: https://gitlab.gnome.org/GNOME/librsvg
+# rsvg-convert and the librsvg code compiled into it are LGPL-2.1-or-later.
+# Most of the Rust crates linked into it are MIT, or offer a choice that
+# includes MIT, which the label takes. nalgebra, simba and approx are
+# Apache-2.0 only; cssparser, cssparser-color, dtoa-short, selectors and
+# mp4parse are MPL-2.0; encoding_rs includes WHATWG data under BSD-3-Clause;
+# the ICU4X crates are Unicode-3.0. The Rust standard library and the crates
+# it uses are MIT or a choice that includes it, with compiler-builtins also
+# under Apache-2.0 WITH LLVM-exception. The crate list in the binary also
+# names libloading (ISC), dlib and yeslogic-fontconfig-sys, which are not
+# compiled into rsvg-convert: rsvg_convert's dev-dependency on librsvg turns on
+# its test-utils feature, and cargo metadata, which cargo-auditable reads,
+# counts dev-dependency features as enabled. The label covers them, so that
+# it matches that list. The build stops when a crate linked into
+# rsvg-convert has a license that this label does not cover (the build reads
+# this line). Because the label has an LGPL term, the build also copies the
+# source of every crate into the image.
+license: LGPL-2.1-or-later AND MPL-2.0 AND MIT AND Apache-2.0 AND BSD-3-Clause AND ISC AND Unicode-3.0 AND Apache-2.0 WITH LLVM-exception
+source-release: true
+upstream:
+  source: gitlab-release
+  server: https://gitlab.gnome.org
+  project: GNOME/librsvg
+  # Release tags are plain versions such as 2.63.3. A patch number of 90 or
+  # more, as in 2.62.91, marks a beta of the next series; those are left out.
+  tag-pattern: '^(\d+\.\d+\.(?:\d|[1-8]\d))$'
+  version-template: '{1}'
+  versioning: semver
+  version: 2.63.3
+  # The tarball carries Cargo.lock, and cargo checks every crate it downloads
+  # against the checksum there.
+  artifact:
+    url: https://download.gnome.org/sources/librsvg/{major}.{minor}/librsvg-{version}.tar.xz
+    checksums:
+      url: https://download.gnome.org/sources/librsvg/{major}.{minor}/librsvg-{version}.sha256sum
+      algorithm: sha256
+    sha256: 55311c2293612e4a2e38cd9bdb6160a1c85c158adc7c97e423e1e65949afb6a4
+  extra-artifacts:
+    # The Rust release manifest, signed with the Rust release key. The build
+    # installs rustc, cargo, rust-std and rust-src from the archives it lists,
+    # each checked against the SHA-256 the manifest gives. The reconciler moves
+    # version and sha256 to each new stable release once it is 7 days old.
+    rust-toolchain:
+      version: 1.99.1
+      url: https://static.rust-lang.org/dist/channel-rust-{version}.toml
+      checksums: {url: 'https://static.rust-lang.org/dist/channel-rust-{version}.toml.sha256', algorithm: sha256}
+      signature: https://static.rust-lang.org/dist/channel-rust-{version}.toml.asc
+      sha256: fb152be80975c194aa5fc684b2aec3a6e14e2b855efe2faa4e5f8ae6e590f463
+      track:
+        source: html-index
+        url: https://static.rust-lang.org/dist/channel-rust-stable.toml
+        pattern: '^url = "https://static\.rust-lang\.org/dist/(?P<date>\d{4}-\d{2}-\d{2})/rustc-(?P<version>\d+\.\d+\.\d+)-x86_64-unknown-linux-gnu\.tar\.gz"$'
+        versioning: semver
+        cooldown: 7d
+        skip: []
+    # Built from its crate and used only in the build stage. It stores the
+    # list of crates in the rsvg-convert binary, where SBOM tools and image
+    # scanners read it. Update version and sha256 together, with the checksum
+    # from the crates.io index.
+    cargo-auditable:
+      version: 0.7.7
+      url: https://static.crates.io/crates/cargo-auditable/cargo-auditable-{version}.crate
+      sha256: ccdd489bc94d1338cd04389a842e00661300331ec915fb376b4810ef7d480b5d
+image:
+  entrypoint: [rsvg-convert]
+  # Without arguments the image prints the options. rsvg-convert reads an
+  # SVG document from stdin when it is given - or no input file.
+  cmd: [--help]
+test:
+  - |
+    rsvg-convert --version > version.txt
+    if [ "$(head -n 1 version.txt)" != "rsvg-convert version $VERSION" ]; then
+      cat version.txt >&2
+      echo "expected rsvg-convert version $VERSION" >&2
+      exit 1
+    fi
+    for lib in cairo pango harfbuzz fontconfig; do
+      grep -Eq "^  $lib [0-9]" version.txt || { cat version.txt >&2; echo "missing library: $lib" >&2; exit 1; }
+    done
+    # AVIF images are decoded by the distro's dav1d library, not by a copy
+    # compiled into the binary.
+    ldd /usr/local/bin/rsvg-convert > ldd.txt
+    grep -Fq libdav1d.so ldd.txt || { cat ldd.txt >&2; echo "rsvg-convert does not load libdav1d" >&2; exit 1; }
+  - |
+    # size FILE: the width and height in the IHDR chunk of a PNG file.
+    size() {
+      od -An -tu1 -j16 -N8 "$1" | awk '{ printf "%dx%d\n", (($1 * 256 + $2) * 256 + $3) * 256 + $4, (($5 * 256 + $6) * 256 + $7) * 256 + $8 }'
+    }
+    png() {
+      sig=$(head -c 8 "$1" | od -An -tx1 | tr -d ' \n')
+      [ "$sig" = 89504e470d0a1a0a ] || { echo "$1 is not a PNG file" >&2; exit 1; }
+      got=$(size "$1")
+      [ "$got" = "$2" ] || { echo "$1: expected $2 pixels, got $got" >&2; exit 1; }
+    }
+    printf '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="20" height="10" fill="red"/><rect id="dot" x="2" y="1" width="5" height="7" fill="blue"/></svg>\n' > r.svg
+    rsvg-convert -o r.png r.svg
+    png r.png 20x10
+    rsvg-convert -w 200 -o w.png r.svg
+    png w.png 200x100
+    rsvg-convert --zoom 2 -o z.png r.svg
+    png z.png 40x20
+    rsvg-convert -w 50 -h 50 --keep-aspect-ratio -o a.png r.svg
+    png a.png 50x25
+    rsvg-convert -i dot -o dot.png r.svg
+    png dot.png 5x7
+    rsvg-convert < r.svg > stdin.png
+    cmp stdin.png r.png || { echo "reading stdin gave another image than reading r.svg" >&2; exit 1; }
+    rsvg-convert - < r.svg > dash.png
+    cmp dash.png r.png || { echo "reading stdin as - gave another image than reading r.svg" >&2; exit 1; }
+  - |
+    printf '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="20" height="10" fill="red"/></svg>\n' > a.svg
+    printf '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="20"><circle cx="5" cy="10" r="5" fill="blue"/></svg>\n' > b.svg
+    # starts FILE TEXT: FILE begins with TEXT.
+    starts() {
+      head -c "${#2}" "$1" > start.txt
+      [ "$(cat start.txt)" = "$2" ] || { echo "$1 does not start with '$2':" >&2; head -c 64 "$1" >&2; exit 1; }
+    }
+    rsvg-convert -f pdf -o two.pdf a.svg b.svg
+    starts two.pdf %PDF-
+    rsvg-convert -f ps -o two.ps a.svg b.svg
+    starts two.ps %!PS-Adobe-3.0
+    pages=$(grep -c '^%%Page: ' two.ps || true)
+    [ "$pages" = 2 ] || { echo "expected 2 pages in two.ps, got $pages" >&2; exit 1; }
+    rsvg-convert -f eps -o one.eps a.svg
+    starts one.eps '%!PS-Adobe-3.0 EPSF-3.0'
+    rsvg-convert -f svg -o one.svg a.svg
+    grep -Fq '<svg' one.svg || { cat one.svg >&2; echo "one.svg is not SVG" >&2; exit 1; }
+    rsvg-convert --unlimited --keep-image-data -f pdf -o kept.pdf a.svg
+    starts kept.pdf %PDF-
+  - |
+    # Text needs a font. The image has DejaVu, so a sans serif and a
+    # monospaced font give different images.
+    text() {
+      printf '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="30"><text x="5" y="22" font-size="20" font-family="%s">Hello</text></svg>\n' "$1" > "$2.svg"
+      rsvg-convert -b white -o "$2.png" "$2.svg"
+    }
+    printf '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="30"/>\n' > blank.svg
+    rsvg-convert -b white -o blank.png blank.svg
+    text 'DejaVu Sans' sans
+    text 'DejaVu Sans Mono' mono
+    if cmp -s sans.png blank.png; then echo "no text was drawn" >&2; exit 1; fi
+    if cmp -s sans.png mono.png; then echo "DejaVu Sans and DejaVu Sans Mono look the same" >&2; exit 1; fi
+    # A stylesheet given with -s is a user stylesheet. It overrides
+    # presentation attributes such as fill="red", but not the style
+    # attribute or the document's own CSS.
+    printf '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="20" height="10" fill="red"/></svg>\n' > r.svg
+    printf '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="20" height="10" style="fill: red"/></svg>\n' > styled.svg
+    printf 'rect { fill: red; }\n' > red.css
+    printf 'rect { fill: blue; }\n' > blue.css
+    rsvg-convert -o plain.png r.svg
+    rsvg-convert -s red.css -o red.png r.svg
+    rsvg-convert -s blue.css -o blue.png r.svg
+    rsvg-convert -s blue.css -o styled.png styled.svg
+    cmp red.png plain.png || { echo "a stylesheet with the same color changed the image" >&2; exit 1; }
+    if cmp -s blue.png plain.png; then echo "the stylesheet was not applied" >&2; exit 1; fi
+    cmp styled.png plain.png || { echo "the stylesheet overrode the style attribute" >&2; exit 1; }
+  - |
+    # rectangle.avif, a 10x10 AVIF image from librsvg's test suite
+    # (rsvg/tests/fixtures/reftests), under LGPL-2.1-or-later.
+    avif=AAAAHGZ0eXBhdmlmAAAAAGF2aWZtaWYxbWlhZgAAAOptZXRhAAAAAAAAACFoZGxyAAAAAAAAAABwaWN0AAAAAAAAAAAAAAAAAAAAAA5waXRtAAAAAAABAAAAImlsb2MAAAAAREAAAQABAAAAAAEOAAEAAAAAAAAAIQAAACNpaW5mAAAAAAABAAAAFWluZmUCAAAAAAEAAGF2MDEAAAAAamlwcnAAAABLaXBjbwAAABNjb2xybmNseAABAA0ABoAAAAAMYXYxQ4EADAAAAAAUaXNwZQAAAAAAAAAKAAAACgAAABBwaXhpAAAAAAMICAgAAAAXaXBtYQAAAAAAAAABAAEEAYIDBAAAACltZGF0EgAKCRgM5lggIaDQgDISGAAKKKKEAACpjMK7oRKCHmG8
+    printf '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><image href="data:image/avif;base64,%s" width="10" height="10"/></svg>\n' "$avif" > avif.svg
+    printf '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"/>\n' > empty.svg
+    rsvg-convert -o avif.png avif.svg
+    rsvg-convert -o empty.png empty.svg
+    if cmp -s avif.png empty.png; then echo "the AVIF image was not drawn" >&2; exit 1; fi
+  - |
+    # XInclude reads text from a file next to the SVG file. A file outside
+    # its directory is refused, and the fallback is used instead.
+    svg() {
+      printf '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xi="http://www.w3.org/2001/XInclude" width="120" height="30"><text x="5" y="22" font-size="20" font-family="DejaVu Sans">%s</text></svg>\n' "$1" > "$2.svg"
+      rsvg-convert -o "$2.png" "$2.svg"
+    }
+    printf 'Hello' > hello.txt
+    svg Hello inline
+    svg '<xi:include href="hello.txt" parse="text"/>' included
+    svg '<xi:include href="/etc/os-release" parse="text"><xi:fallback>Hello</xi:fallback></xi:include>' outside
+    cmp included.png inline.png || { echo "the included text differs from the same text inline" >&2; exit 1; }
+    cmp outside.png inline.png || { echo "a file outside the directory of the SVG file was read" >&2; exit 1; }
+    # Remote images are never fetched: the image is skipped and the rest is
+    # drawn.
+    printf '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="20" height="10" fill="red"/></svg>\n' > local.svg
+    printf '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="20" height="10" fill="red"/><image href="http://127.0.0.1:9/x.png" width="10" height="10"/></svg>\n' > remote.svg
+    rsvg-convert -o local.png local.svg
+    rsvg-convert -o remote.png remote.svg
+    cmp remote.png local.png || { echo "the remote image changed the output" >&2; exit 1; }
+    # A file that is not SVG is an error.
+    printf 'not svg\n' > bad.svg
+    status=0
+    rsvg-convert -o bad.png bad.svg 2> bad.err || status=$?
+    [ "$status" != 0 ] || { echo "rsvg-convert accepted a file that is not SVG" >&2; exit 1; }
+    test -s bad.err || { echo "rsvg-convert failed without a message" >&2; exit 1; }
+examples:
+  - title: Convert an SVG file to a PNG file 512 pixels wide
+    command: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/randomcontainers/librsvg -w 512 -o icon.png icon.svg
+  - title: Combine SVG files into one PDF file, one page each
+    command: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/randomcontainers/librsvg -f pdf -o slides.pdf 1.svg 2.svg 3.svg
+  - title: Render one element, by its id
+    command: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/randomcontainers/librsvg -i logo -o logo.png drawing.svg
+  - title: Convert from stdin to stdout
+    command: docker run --rm -i ghcr.io/randomcontainers/librsvg - < drawing.svg > drawing.png
