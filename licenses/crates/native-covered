@@ -1,0 +1,7 @@
+# rayon-core declares links = "rayon-core" only so that a program links one
+# version of it; its build script compiles nothing.
+rayon-core
+# yeslogic-fontconfig-sys is in the binary's crate list only because a
+# dev-dependency turns on librsvg's test-utils feature; it is not compiled
+# into rsvg-convert, and its build script only runs pkg-config.
+yeslogic-fontconfig-sys
