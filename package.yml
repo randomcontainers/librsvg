@@ -30,7 +30,7 @@ upstream:
   tag-pattern: '^(\d+\.\d+\.(?:\d|[1-8]\d))$'
   version-template: '{1}'
   versioning: semver
-  version: 2.63.3
+  version: 2.63.4
   # The tarball carries Cargo.lock, and cargo checks every crate it downloads
   # against the checksum there.
   artifact:
@@ -38,7 +38,7 @@ upstream:
     checksums:
       url: https://download.gnome.org/sources/librsvg/{major}.{minor}/librsvg-{version}.sha256sum
       algorithm: sha256
-    sha256: 55311c2293612e4a2e38cd9bdb6160a1c85c158adc7c97e423e1e65949afb6a4
+    sha256: 31f07d9350dad3f8964fd613c31309ac160fdef13dfac59df6fd082de78d6e8f
   extra-artifacts:
     # The Rust release manifest, signed with the Rust release key. The build
     # installs rustc, cargo, rust-std and rust-src from the archives it lists,
