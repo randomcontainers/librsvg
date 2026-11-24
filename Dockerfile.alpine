@@ -212,7 +212,7 @@ FROM ${BASE_IMAGE} AS slim
 # the fonts again.
 RUN --mount=type=bind,from=build,source=/out/usr/local/share/randomcontainers/librsvg/runtime-deps,target=/tmp/runtime-deps \
     set -eu; \
-    xargs apk add --no-cache ca-certificates tini < /tmp/runtime-deps; \
+    xargs apk add --no-cache ca-certificates tini tzdata < /tmp/runtime-deps; \
     fc-cache -f; \
     addgroup -g 1000 app; \
     adduser -D -u 1000 -G app app; \
